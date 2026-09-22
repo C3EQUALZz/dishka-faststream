@@ -59,13 +59,13 @@ else:
 
 
 class ApplicationLike(Protocol):
-    broker: BrokerType[Any, Any]
+    broker: BrokerType[Any, Any, Any]
 
 
 def setup_dishka(
     container: AsyncContainer,
     app: "Application | ApplicationLike | None" = None,
-    broker: "BrokerType[Any, Any] | None" = None,
+    broker: "BrokerType[Any, Any, Any] | None" = None,
     *,
     finalize_container: bool = False,
     auto_inject: bool | InjectFunc[_ParamsP, _ReturnT] = False,
