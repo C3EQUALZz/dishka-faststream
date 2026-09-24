@@ -97,6 +97,31 @@ Or pass your own inject decorator
 setup_dishka(container=container, broker=broker, auto_inject=my_inject)
 ```
 
+### Broker event callbacks
+
+Broker callbacks run outside the subscriber middleware, so open a Dishka scope
+inside the callback to use request-scoped dependencies. For example, to handle
+NATS client errors, register `ErrorHandler` in your provider with `Scope.REQUEST`
+and pass a callback to `NatsBroker`:
+
+```python
+from dishka import AsyncContainer
+from faststream.nats import NatsBroker
+from nats.aio.client import ErrorCallback
+
+
+def make_error_cb(container: AsyncContainer) -> ErrorCallback:
+    async def callback(error: Exception) -> None:
+        async with container() as ctx:
+            handler = await ctx.get(ErrorHandler)
+            await handler.handle(error)
+
+    return callback
+
+
+broker = NatsBroker(error_cb=make_error_cb(container))
+```
+
 ## FastStream - Litestar/FastAPI - dishka integration
 
 1. Running RabbitMQ
