@@ -1,18 +1,21 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, ParamSpec, TypeVar
 from unittest.mock import Mock
 
 import pytest
-from dishka import make_async_container
+from dishka import Provider, Scope, make_async_container, make_container, provide
 from dishka.integrations.base import InjectFunc
-from faststream import FastStream
+from faststream import ContextRepo, FastStream
 from faststream.nats import NatsBroker, TestNatsBroker
 
 from dishka_faststream import (
+    FastStreamProvider,
     FromDishka,
     inject,
     setup_dishka,
+    wrap_callback,
 )
 
 from .common import (
@@ -173,3 +176,78 @@ async def test_custom_auto_inject(app_provider: AppProvider) -> None:
         app_provider.mock.assert_called_with(APP_DEP_VALUE)
         app_provider.app_released.assert_not_called()
     app_provider.app_released.assert_called()
+
+
+@dataclass
+class CallbackDependency:
+    context: ContextRepo
+    request: RequestDep
+
+
+class CallbackProvider(Provider):
+    @provide(scope=Scope.REQUEST)
+    def dependency(
+        self,
+        context: ContextRepo,
+        request: RequestDep,
+    ) -> CallbackDependency:
+        return CallbackDependency(context, request)
+
+
+@pytest.mark.asyncio()
+async def test_async_callback_with_context(app_provider: AppProvider) -> None:
+    container = make_async_container(
+        app_provider,
+        CallbackProvider(),
+        FastStreamProvider(),
+    )
+    context = ContextRepo()
+    broker_error = ValueError("broker error")
+    received: list[Exception] = []
+
+    async def callback(
+        error: Exception,
+        dependency: FromDishka[CallbackDependency],
+    ) -> None:
+        received.append(error)
+        assert dependency.context is context
+        assert dependency.request == REQUEST_DEP_VALUE
+        app_provider.request_released.assert_not_called()
+
+    wrapped = wrap_callback(callback=callback, container=container, context=context)
+    try:
+        await wrapped(broker_error)
+        assert len(received) == 1
+        assert received[0] is broker_error
+        app_provider.request_released.assert_called_once()
+    finally:
+        await container.close()
+
+
+def test_sync_callback_with_context(app_provider: AppProvider) -> None:
+    container = make_container(
+        app_provider,
+        CallbackProvider(),
+        FastStreamProvider(),
+    )
+    context = ContextRepo()
+    broker_error = ValueError("broker error")
+    received: list[Exception] = []
+
+    def callback(
+        error: Exception,
+        dependency: FromDishka[CallbackDependency],
+    ) -> None:
+        received.append(error)
+        assert dependency.context is context
+        assert dependency.request == REQUEST_DEP_VALUE
+        app_provider.request_released.assert_not_called()
+
+    wrapped = wrap_callback(callback=callback, container=container, context=context)
+    try:
+        wrapped(broker_error)
+        assert len(received) == 1
+        assert received[0] is broker_error
+        app_provider.request_released.assert_called_once()
+    finally:
+        container.close()

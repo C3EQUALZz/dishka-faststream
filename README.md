@@ -99,36 +99,17 @@ setup_dishka(container=container, broker=broker, auto_inject=my_inject)
 
 ### Broker event callbacks
 
-Broker callbacks run outside the subscriber middleware. Use Dishka's
-`wrap_injection` to inject dependencies into an error callback in a separate
-`REQUEST` scope.
+Broker callbacks run outside the subscriber middleware. Use `wrap_callback`
+to inject dependencies into a callback in a separate `REQUEST` scope.
+Use `AsyncContainer` for asynchronous callbacks and `Container` for synchronous
+callbacks. NATS client callbacks must be asynchronous.
 For example, to handle NATS client errors, register `ErrorHandler` in your
 provider with `Scope.REQUEST` and pass the wrapped callback to `NatsBroker`:
 
 ```python
-from collections.abc import Awaitable, Callable
-
-from dishka import AsyncContainer, Scope
-from dishka.integrations.base import wrap_injection
-from faststream import FastStream
-from faststream._internal.context import ContextRepo
+from faststream import ContextRepo, FastStream
 from faststream.nats import NatsBroker
-from dishka_faststream import FromDishka
-
-
-def wrap_error_callback(
-    *,
-    callback: Callable[..., Awaitable[None]],
-    container: AsyncContainer,
-    context: ContextRepo,
-) -> Callable[[Exception], Awaitable[None]]:
-    return wrap_injection(
-        func=callback,
-        container_getter=lambda _args, _kwargs: container,
-        is_async=True,
-        scope=Scope.REQUEST,
-        provide_context=lambda _args, _kwargs: {ContextRepo: context},
-    )
+from dishka_faststream import FromDishka, wrap_callback
 
 
 async def error_callback(
@@ -141,7 +122,7 @@ async def error_callback(
 context = ContextRepo()
 broker = NatsBroker(
     context=context,
-    error_cb=wrap_error_callback(
+    error_cb=wrap_callback(
         callback=error_callback,
         container=container,
         context=context,

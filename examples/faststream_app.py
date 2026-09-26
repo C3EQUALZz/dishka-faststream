@@ -1,15 +1,12 @@
-from collections.abc import Awaitable, Callable
-
-from faststream import FastStream
-from faststream._internal.context import ContextRepo
+from faststream import ContextRepo, FastStream
 from faststream.nats import NatsBroker, NatsMessage
 
-from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
-from dishka.integrations.base import wrap_injection
+from dishka import Provider, Scope, make_async_container, provide
 from dishka_faststream import (
     FastStreamProvider,
     FromDishka,
     setup_dishka,
+    wrap_callback,
 )
 
 
@@ -46,21 +43,6 @@ class MyProvider(Provider):
         return ErrorHandler(b, context)
 
 
-def wrap_error_callback(
-    *,
-    callback: Callable[..., Awaitable[None]],
-    container: AsyncContainer,
-    context: ContextRepo,
-) -> Callable[[Exception], Awaitable[None]]:
-    return wrap_injection(
-        func=callback,
-        container_getter=lambda _args, _kwargs: container,
-        is_async=True,
-        scope=Scope.REQUEST,
-        provide_context=lambda _args, _kwargs: {ContextRepo: context},
-    )
-
-
 async def error_callback(
     error: Exception,
     error_handler: FromDishka[ErrorHandler],
@@ -74,7 +56,7 @@ context = ContextRepo()
 
 broker = NatsBroker(
     context=context,
-    error_cb=wrap_error_callback(
+    error_cb=wrap_callback(
         callback=error_callback,
         container=container,
         context=context,
