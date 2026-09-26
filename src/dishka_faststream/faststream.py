@@ -21,6 +21,7 @@ from typing import (
 )
 
 from dishka import AsyncContainer, Container, Provider, Scope, from_context
+from dishka.exception_base import DishkaError
 from dishka.integrations.base import InjectFunc, wrap_injection
 from faststream import BaseMiddleware, Context, FastStream
 from faststream._internal.basic_types import DecodedMessage
@@ -134,9 +135,13 @@ def wrap_callback(
             context=context,
         )
 
+    if isinstance(container, AsyncContainer):
+        msg = "Can't use async container in sync context"
+        raise DishkaError(msg)
+
     return _wrap_sync_callback(
         callback=callback,
-        container=cast("Container", container),
+        container=container,
         context=context,
     )
 
