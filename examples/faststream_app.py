@@ -1,8 +1,11 @@
-from faststream import ContextRepo, FastStream
+from collections.abc import Awaitable, Callable
+
+from faststream import FastStream
+from faststream._internal.context import ContextRepo
 from faststream.nats import NatsBroker, NatsMessage
-from nats.aio.client import ErrorCallback
 
 from dishka import AsyncContainer, Provider, Scope, make_async_container, provide
+from dishka.integrations.base import wrap_injection
 from dishka_faststream import (
     FastStreamProvider,
     FromDishka,
@@ -21,8 +24,9 @@ class B:
 
 
 class ErrorHandler:
-    def __init__(self, b: B) -> None:
+    def __init__(self, b: B, context: ContextRepo) -> None:
         self.b = b
+        self.context = context
 
     async def handle(self, error: Exception) -> None:
         print(f"Broker error: {error!r}; dependency: {self.b!r}")
@@ -38,24 +42,45 @@ class MyProvider(Provider):
         return B(a)
 
     @provide(scope=Scope.REQUEST)
-    def get_error_handler(self, b: B) -> ErrorHandler:
-        return ErrorHandler(b)
+    def get_error_handler(self, b: B, context: ContextRepo) -> ErrorHandler:
+        return ErrorHandler(b, context)
 
 
-def make_error_cb(container: AsyncContainer) -> ErrorCallback:
-    async def callback(error: Exception) -> None:
-        async with container() as request_container:
-            handler = await request_container.get(ErrorHandler)
-            await handler.handle(error)
+def wrap_error_callback(
+    *,
+    callback: Callable[..., Awaitable[None]],
+    container: AsyncContainer,
+    context: ContextRepo,
+) -> Callable[[Exception], Awaitable[None]]:
+    return wrap_injection(
+        func=callback,
+        container_getter=lambda _args, _kwargs: container,
+        is_async=True,
+        scope=Scope.REQUEST,
+        provide_context=lambda _args, _kwargs: {ContextRepo: context},
+    )
 
-    return callback
+
+async def error_callback(
+    error: Exception,
+    error_handler: FromDishka[ErrorHandler],
+) -> None:
+    await error_handler.handle(error)
 
 
 provider = MyProvider()
 container = make_async_container(provider, FastStreamProvider())
+context = ContextRepo()
 
-broker = NatsBroker(error_cb=make_error_cb(container))
-app = FastStream(broker)
+broker = NatsBroker(
+    context=context,
+    error_cb=wrap_error_callback(
+        callback=error_callback,
+        container=container,
+        context=context,
+    ),
+)
+app = FastStream(broker, context=context)
 setup_dishka(container, app, auto_inject=True)
 
 

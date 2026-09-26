@@ -99,28 +99,60 @@ setup_dishka(container=container, broker=broker, auto_inject=my_inject)
 
 ### Broker event callbacks
 
-Broker callbacks run outside the subscriber middleware, so open a Dishka scope
-inside the callback to use request-scoped dependencies. For example, to handle
-NATS client errors, register `ErrorHandler` in your provider with `Scope.REQUEST`
-and pass a callback to `NatsBroker`:
+Broker callbacks run outside the subscriber middleware. Use Dishka's
+`wrap_injection` to inject dependencies into an error callback in a separate
+`REQUEST` scope.
+For example, to handle NATS client errors, register `ErrorHandler` in your
+provider with `Scope.REQUEST` and pass the wrapped callback to `NatsBroker`:
 
 ```python
-from dishka import AsyncContainer
+from collections.abc import Awaitable, Callable
+
+from dishka import AsyncContainer, Scope
+from dishka.integrations.base import wrap_injection
+from faststream import FastStream
+from faststream._internal.context import ContextRepo
 from faststream.nats import NatsBroker
-from nats.aio.client import ErrorCallback
+from dishka_faststream import FromDishka
 
 
-def make_error_cb(container: AsyncContainer) -> ErrorCallback:
-    async def callback(error: Exception) -> None:
-        async with container() as request_container:
-            handler = await request_container.get(ErrorHandler)
-            await handler.handle(error)
+def wrap_error_callback(
+    *,
+    callback: Callable[..., Awaitable[None]],
+    container: AsyncContainer,
+    context: ContextRepo,
+) -> Callable[[Exception], Awaitable[None]]:
+    return wrap_injection(
+        func=callback,
+        container_getter=lambda _args, _kwargs: container,
+        is_async=True,
+        scope=Scope.REQUEST,
+        provide_context=lambda _args, _kwargs: {ContextRepo: context},
+    )
 
-    return callback
+
+async def error_callback(
+    error: Exception,
+    error_handler: FromDishka[ErrorHandler],
+) -> None:
+    await error_handler.handle(error)
 
 
-broker = NatsBroker(error_cb=make_error_cb(container))
+context = ContextRepo()
+broker = NatsBroker(
+    context=context,
+    error_cb=wrap_error_callback(
+        callback=error_callback,
+        container=container,
+        context=context,
+    ),
+)
+app = FastStream(broker, context=context)
 ```
+
+Share the same `ContextRepo` with the callback, broker, and FastStream application.
+Create the container with `FastStreamProvider()` if your dependencies use
+`ContextRepo`. `StreamMessage` context is not available in broker callbacks.
 
 ## FastStream - Litestar/FastAPI - dishka integration
 
