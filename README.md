@@ -112,8 +112,8 @@ from nats.aio.client import ErrorCallback
 
 def make_error_cb(container: AsyncContainer) -> ErrorCallback:
     async def callback(error: Exception) -> None:
-        async with container() as ctx:
-            handler = await ctx.get(ErrorHandler)
+        async with container() as request_container:
+            handler = await request_container.get(ErrorHandler)
             await handler.handle(error)
 
     return callback
