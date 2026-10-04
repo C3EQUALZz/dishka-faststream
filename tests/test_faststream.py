@@ -9,7 +9,6 @@ from dishka import (
     Container,
     make_async_container,
 )
-from dishka.exception_base import DishkaError
 from dishka.integrations.base import InjectFunc
 from faststream import ContextRepo, FastStream
 from faststream.nats import NatsBroker, TestNatsBroker
@@ -215,18 +214,6 @@ async def test_async_callback_with_context(
     assert dependency.context is context
     assert dependency.request == REQUEST_DEP_VALUE
     app_provider.request_released.assert_called_once()
-
-
-@pytest.mark.asyncio()
-async def test_sync_callback_rejects_async_container(
-    async_callback_container: AsyncContainer,
-) -> None:
-    with pytest.raises(DishkaError, match=r"^Can't use async container in sync context$"):
-        wrap_callback(
-            callback=sync_error_callback,  # type: ignore[arg-type]
-            container=async_callback_container,
-            context=ContextRepo(),
-        )
 
 
 def test_sync_callback_with_context(
