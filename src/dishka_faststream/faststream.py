@@ -73,7 +73,7 @@ class ApplicationLike(Protocol):
 def wrap_callback(
     *,
     callback: Callable[..., Awaitable[_ReturnT]],
-    container: AsyncContainer,
+    container: AsyncContainer | Container,
     context: ContextRepo,
 ) -> Callable[..., Awaitable[_ReturnT]]: ...
 
